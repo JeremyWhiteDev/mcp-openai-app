@@ -5,6 +5,10 @@ import subprocess
 import time
 from typing import Any
 
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import uvicorn
+
 from agents import Agent, Runner, gen_trace_id, trace
 from agents.mcp import MCPServer, MCPServerSse
 from agents.model_settings import ModelSettings
@@ -12,79 +16,81 @@ from agents.model_settings import ModelSettings
 from agents import set_default_openai_key
 
 
-
-async def run(mcp_server: MCPServer):
-    agent = Agent(
-        name="Assistant",
-        instructions="Use the tools to answer the questions.",
-        # model="GPT-4o",
-        mcp_servers=[mcp_server],
-        model_settings=ModelSettings(tool_choice="required"),
-    )
-
-    # Use the `add` tool to add two numbers
-    message = "Add these numbers: 7 and 22."
-    print(f"Running: {message}")
-    result = await Runner.run(starting_agent=agent, input=message)
-    print(result.final_output)
-
-    # Run the `get_weather` tool
-    message = "What's the weather in Tokyo?"
-    print(f"\n\nRunning: {message}")
-    result = await Runner.run(starting_agent=agent, input=message)
-    print(result.final_output)
-
-    # Run the `get_secret_word` tool
-    message = "What's the secret word?"
-    print(f"\n\nRunning: {message}")
-    result = await Runner.run(starting_agent=agent, input=message)
-    print(result.final_output)
+# ---------- FastAPI Models ----------
+class PromptRequest(BaseModel):
+    prompt: str
 
 
-async def main():
-    async with MCPServerSse(
+# ---------- Global MCP Server ----------
+mcp_server: MCPServer | None = None
+
+# ---------- FastAPI App ----------
+app = FastAPI()
+
+
+@app.post("/ask")
+async def ask_agent(req: PromptRequest):
+    if mcp_server is None:
+        raise HTTPException(status_code=503, detail="MCP Server not initialized yet")
+
+    trace_id = gen_trace_id()
+    with trace(workflow_name="API Prompt", trace_id=trace_id):
+        agent = Agent(
+            name="Assistant",
+            instructions="Use the tools to answer the questions. ask follow up questions if you thing that you can answer them with a tool, prompt users for missing information if you think a tool will answer the question",
+            mcp_servers=[mcp_server],
+            model_settings=ModelSettings(tool_choice="required"),
+        )
+        result = await Runner.run(starting_agent=agent, input=req.prompt)
+        return {"response": result.final_output}
+
+
+# ---------- MCP Setup + FastAPI Startup ----------
+async def startup_mcp_server():
+    global mcp_server
+    mcp_server = MCPServerSse(
         name="SSE Python Server",
-        params={
-            "url": "http://localhost:8000/sse",
-        },
-    ) as server:
-        trace_id = gen_trace_id()
-        with trace(workflow_name="SSE Example", trace_id=trace_id):
-            print(f"View trace: https://platform.openai.com/traces/trace?trace_id={trace_id}\n")
-            await run(server)
+        params={"url": "http://localhost:8000/sse"},
+    )
+    await mcp_server.__aenter__()
+
+
+@app.on_event("startup")
+async def on_startup():
+    await startup_mcp_server()
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    if mcp_server:
+        await mcp_server.__aexit__(None, None, None)
+
+
+# ---------- Run Locally with SSE Server ----------
+def start_sse_subprocess():
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    server_file = os.path.join(this_dir, "server.py")
+
+    print("Starting SSE server at http://localhost:8000/sse ...")
+
+    process = subprocess.Popen(["uv", "run", server_file])
+    time.sleep(3)
+    return process
 
 
 if __name__ == "__main__":
-    # Let's make sure the user has uv installed
     if not shutil.which("uv"):
-        raise RuntimeError(
-            "uv is not installed. Please install it: https://docs.astral.sh/uv/getting-started/installation/"
-        )
-    
+        raise RuntimeError("uv is not installed. Please install it: https://docs.astral.sh/uv/getting-started/installation/")
+
+    # Optional: load API key
     # set_default_openai_key(os.getenv("OPENAI_API_KEY"))
 
-
-    # We'll run the SSE server in a subprocess. Usually this would be a remote server, but for this
-    # demo, we'll run it locally at http://localhost:8000/sse
-    process: subprocess.Popen[Any] | None = None
+    sse_process: subprocess.Popen[Any] | None = None
     try:
-        this_dir = os.path.dirname(os.path.abspath(__file__))
-        server_file = os.path.join(this_dir, "server.py")
+        sse_process = start_sse_subprocess()
 
-        print("Starting SSE server at http://localhost:8000/sse ...")
-
-        # Run `uv run server.py` to start the SSE server
-        process = subprocess.Popen(["uv", "run", server_file])
-        # Give it 3 seconds to start
-        time.sleep(3)
-
-        print("SSE server started. Running example...\n\n")
-    except Exception as e:
-        print(f"Error starting SSE server: {e}")
-        exit(1)
-
-    try:
-        asyncio.run(main())
+        print("SSE server started. Starting FastAPI app on http://localhost:9000 ...\n\n")
+        uvicorn.run("main:app", host="0.0.0.0", port=9000, reload=False)
     finally:
-        if process:
-            process.terminate()
+        if sse_process:
+            sse_process.terminate()

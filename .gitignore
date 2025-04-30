@@ -1,2 +1,4 @@
 /venv
 .env
+/__pycache_
+__pycache__/main.cpython-311.pyc
