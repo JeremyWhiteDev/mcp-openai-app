@@ -1,9 +1,8 @@
-import asyncio
 import os
 import shutil
 import subprocess
 import time
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -13,12 +12,12 @@ from agents import Agent, Runner, gen_trace_id, trace
 from agents.mcp import MCPServer, MCPServerSse
 from agents.model_settings import ModelSettings
 
-from agents import set_default_openai_key
-
+from fastapi.middleware.cors import CORSMiddleware
 
 # ---------- FastAPI Models ----------
 class PromptRequest(BaseModel):
     prompt: str
+    previous_response_id: Optional[str] = None # Had to create thread_id in hopes of conversation tracking.
 
 
 # ---------- Global MCP Server ----------
@@ -26,6 +25,14 @@ mcp_server: MCPServer | None = None
 
 # ---------- FastAPI App ----------
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace "*" with specific origins for better security
+    allow_credentials=True,
+    allow_methods=["*"],  # e.g., ["GET", "POST"]
+    allow_headers=["*"],  # e.g., ["Authorization", "Content-Type"]
+)
 
 
 @app.post("/ask")
@@ -37,12 +44,14 @@ async def ask_agent(req: PromptRequest):
     with trace(workflow_name="API Prompt", trace_id=trace_id):
         agent = Agent(
             name="Assistant",
-            instructions="Use the tools to answer the questions. ask follow up questions if you thing that you can answer them with a tool, prompt users for missing information if you think a tool will answer the question",
+            instructions="You are Jordan, an assistant that helps the people of flex with their every day work. You speak with a laid back, cool, but helpful and intelligent tone. Use the tools to answer the questions. ask follow up questions if you thing that you can answer them with a tool, prompt users for missing information if you think a tool will answer the question. respond in HTML markup",
             mcp_servers=[mcp_server],
             model_settings=ModelSettings(tool_choice="required"),
         )
-        result = await Runner.run(starting_agent=agent, input=req.prompt)
-        return {"response": result.final_output}
+        result = await Runner.run(starting_agent=agent, input=req.prompt, previous_response_id=req.previous_response_id)
+        print(f"Responseid>>> {result.last_response_id}")
+
+        return {"response": result.final_output, "previous_response_id": result.last_response_id}
 
 
 # ---------- MCP Setup + FastAPI Startup ----------
