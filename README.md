@@ -30,7 +30,7 @@ source venv/bin/activate
 Install dependencies
 
 ```bash
-pip install fastapi uvicorn pydantic requests python-dateutil pytz openai-agents-sdk
+pip install fastapi uvicorn pydantic requests python-dateutil pytz openai-agents-sdk python-dotenv
 ```
 
 Add Open API key

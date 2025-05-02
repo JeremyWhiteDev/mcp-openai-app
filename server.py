@@ -1,6 +1,7 @@
 import os
 import random
 
+from dotenv import load_dotenv
 import pytz
 import requests
 from mcp.server.fastmcp import FastMCP
@@ -12,6 +13,7 @@ from datetime import datetime
 # Create server
 mcp = FastMCP("Echo Server")
 
+load_dotenv()
 flexApiKey = os.getenv('FLEX_API_KEY')
 flexApi = os.getenv('FLEX_API_URL')
 
