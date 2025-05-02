@@ -45,9 +45,6 @@ def getElementDefinitions() -> str:
     response = requests.get(url=f"{flexApi}/element-definition/identity", headers={"X-Auth-Token": flexApiKey})
     return response.text
 
-# TODO
-# i'd need a date parser or something
-
 @mcp.tool(description=(
         "Create a new event element. "
         "Use this when a user requests to create a quote, project, or event."
@@ -88,6 +85,7 @@ def createElement(elementDefinitionId: str, businessLocationId: str, name: str, 
     ))
 def searchResource(searchTerm: str) -> str:
     print(f"[searching resources {searchTerm}]")
+    # created a custom API endpoint that just returns one entity
     response = requests.get(url=f"{flexApi}/inventory-model/search-api", params={"searchText": searchTerm}, headers={"X-Auth-Token": flexApiKey})
 
     print(f"[searching result >>>>>> {response.text}]")
