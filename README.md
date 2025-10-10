@@ -1,6 +1,12 @@
 # A demo for 2025 Relay 1 Innovation
 
-Run a server that starts up a RestAPI and an MCP server to allow an LLM to interact with external tools.
+Run a server that starts up a RestAPI and an MCP server to allow an LLM to interact with external tools, specifically the Flex5 Open API.
+
+### Learnings
+
+1. Date parsing can be hard with LLMs when I want a plain text human readable string to be parsed as an ISO String.
+2. When I did this, the results were indeterminate. Sometimes it would successfully make a quote, sometimes it wouldn't.
+3. APIs might have to be redisigned to better work with prompting and a tool architecture. Older APIs implementations might be strongly determined by UI implementations and have their contracts determined by the UI, rather than being implemented with consideration of "good API design". Those failures become more apparent when using APIs in different contexts.
 
 
 ## Example use
